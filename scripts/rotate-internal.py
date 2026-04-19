@@ -200,9 +200,20 @@ def main() -> int:
         # full erasure impossible without ctypes, but we don't keep refs.)
         admin_passwords.clear()
 
+    print()
     print(
-        f"\nNext: run `python3 scripts/handoff-gen.py` to draft per-project incident docs."
+        green("Next steps — read runbooks/04-after-rotation.md for the full checklist")
     )
+    print("  1. `python3 scripts/handoff-gen.py`    — draft per-project handoff docs")
+    print("  2. `vercel logout && vercel login`     — rotate your local CLI token")
+    print("  3. `vercel env pull` per project dir   — refresh local `.env`")
+    print("  4. Update CI/CD secret mirrors (GitHub Actions etc.) for rotated keys")
+    print("  5. `vercel --prod` per project         — force clean redeploy")
+    print("  6. Smoke-test production (sign in, DB query, cron tick)")
+    print("  7. Rotate external vendor keys ONE at a time (see handoff docs)")
+    print("  8. Review Vercel Audit Log for the incident window")
+    print("  9. Rotate Deploy Hooks per project")
+    print("  10. Continue weekly `scripts/audit.py` diffs for 30 days")
     return 0 if not fail else 2
 
 

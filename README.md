@@ -182,6 +182,7 @@ Process docs:
 - [`01-prevention-hardening.md`](runbooks/01-prevention-hardening.md) — defaults, 2FA, access reviews
 - [`02-common-mistakes.md`](runbooks/02-common-mistakes.md) — gotchas, near-misses, what not to do
 - [`03-post-incident-monitoring.md`](runbooks/03-post-incident-monitoring.md) — weekly diffs, canary tokens, when to close the incident
+- [`04-after-rotation.md`](runbooks/04-after-rotation.md) — **what "done" actually means after auto-rotation finishes**
 
 Per-vendor rotation:
 - [Supabase](runbooks/vendor-supabase.md)
