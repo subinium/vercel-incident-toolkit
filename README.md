@@ -13,7 +13,7 @@ If you got here because of the breach disclosure, the minimum five steps:
 vercel logout && vercel login
 
 # 2. Clone + run preflight
-git clone https://github.com/<you>/vercel-incident-toolkit
+git clone https://github.com/subinium/vercel-incident-toolkit
 cd vercel-incident-toolkit
 python3 scripts/preflight.py
 
@@ -51,14 +51,14 @@ Every destructive script is **dry-run by default**. You have to pass `--apply` t
 
 ### As a Claude Code skill
 ```bash
-git clone https://github.com/<you>/vercel-security ~/.claude/skills/vercel-security
+git clone https://github.com/subinium/vercel-incident-toolkit ~/.claude/skills/vercel-incident-toolkit
 ```
 Then just ask Claude Code something like *"audit my Vercel env vars"* or *"help me respond to the Vercel breach"* — it'll read `SKILL.md` and route to the right flow.
 
 ### Standalone (no Claude)
 ```bash
-git clone https://github.com/<you>/vercel-security
-cd vercel-security
+git clone https://github.com/subinium/vercel-incident-toolkit
+cd vercel-incident-toolkit
 python3 scripts/preflight.py          # verifies CLI login + env
 python3 scripts/audit.py              # read-only inventory
 python3 scripts/rotate-internal.py    # dry-run, shows plan
