@@ -1,5 +1,5 @@
 ---
-name: vercel-security
+name: vercel-incident-toolkit
 description: Vercel account hardening and incident response. Use when the user mentions a Vercel breach/incident, asks to audit or rotate Vercel environment variables, mark env vars sensitive, or respond to leaked Vercel tokens. Scope is Vercel only (not Netlify/Cloudflare). Covers four flows — audit, harden, incident response, per-vendor rotation — plus prevention guidance.
 ---
 
@@ -52,11 +52,11 @@ Always surface 2–3 of these when running Flow C — don't let the user believe
 
 ## Post-incident monitoring (stays on for weeks, not hours)
 
-See `runbooks/04-post-incident-monitoring.md`. Short version:
+See `runbooks/03-post-incident-monitoring.md`. Short version:
 
 - Re-run `scripts/audit.py` weekly and diff for 4+ weeks. New env vars, new projects, new team members in the diff = investigate.
 - Enable Audit Log email alerts for high-risk actions (member added, token created, deploy protection disabled).
-- Deploy a **canary env var** — an unused secret whose only purpose is to trigger an alert if it's ever used. See `runbooks/04-post-incident-monitoring.md` for patterns.
+- Deploy a **canary env var** — an unused secret whose only purpose is to trigger an alert if it's ever used. See `runbooks/03-post-incident-monitoring.md` for patterns.
 - Assume the breach window is longer than announced. Rotate again at the 30-day mark if Vercel's post-mortem reveals a longer dwell time.
 
 ## Preconditions (always, in this order)
@@ -147,12 +147,11 @@ Steps (in order — do not skip):
    - `NEXTAUTH_SECRET`, `AUTH_SECRET` (session JWTs — all users will need to re-login, which is the point)
    - `PREVIEW_SECRET`, `REVALIDATION_SECRET`
    - `CRON_SECRET`, `API_KEY_HMAC_SECRET`
-   - `ADMIN_PASSWORD` (new value printed to the local log — user will need this)
+   - `ADMIN_PASSWORD` (new value printed to stdout **once**, never persisted — operator must copy to a password manager immediately)
 
 4. `python3 scripts/handoff-gen.py` — writes one markdown file per affected project at `~/security-incident-<YYYY-MM>-vercel/<project>.md`. Each file contains:
-   - What was auto-rotated (with timestamp)
-   - What vendor keys still need manual rotation (with exact dashboard URL and steps)
-   - New `ADMIN_PASSWORD` if applicable
+   - What was auto-rotated (with timestamp, no plaintext values)
+   - What vendor keys still need manual rotation (with matching runbook + exact follow-up command)
    - Post-rotation verification checklist
 
 5. For every external-vendor key still outstanding, walk the user through the matching vendor runbook **one service at a time**. External rotations have downstream consequences (webhook signatures, CI env, local `.env`) — batching them makes debugging impossible.

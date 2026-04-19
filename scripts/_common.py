@@ -14,14 +14,53 @@ VERCEL_API = "https://api.vercel.com"
 # These are the only keys we will ever auto-generate values for.
 INTERNAL_RANDOM_KEYS: frozenset[str] = frozenset(
     {
+        # Auth.js / NextAuth — session JWT signing
         "NEXTAUTH_SECRET",
         "AUTH_SECRET",
+        # Remix / Express / Hono / Fastify — cookie & session signing
+        "SESSION_SECRET",
+        "COOKIE_SECRET",
+        # PayloadCMS
+        "PAYLOAD_SECRET",
+        # Next.js — preview mode & on-demand ISR
         "PREVIEW_SECRET",
         "REVALIDATION_SECRET",
+        # Vercel Cron authorization
         "CRON_SECRET",
+        # Internal HMAC signing (rotating breaks old signatures — acceptable)
         "API_KEY_HMAC_SECRET",
+        "HMAC_SECRET",
+        # Simple admin login secret (rotate hash cascades to operator)
         "ADMIN_PASSWORD",
     }
+)
+
+# Never auto-rotate these — rotation breaks stateful data (at-rest encryption,
+# refresh tokens, persistent signatures).
+NEVER_ROTATE_PATTERNS: tuple[str, ...] = (
+    "ENCRYPTION_KEY",
+    "DATA_ENCRYPTION",
+    "AT_REST",
+    "MASTER_KEY",
+    "FIELD_KEY",
+    "KMS_KEY",
+    # Refresh / JWT keys may sign long-lived tokens; defer to operator
+    "JWT_SECRET",
+    "JWT_PRIVATE",
+    "REFRESH_TOKEN_SECRET",
+    # External vendor secrets — handled via update-env.py after vendor rotation
+    "SUPABASE",
+    "STRIPE",
+    "OPENAI",
+    "ANTHROPIC",
+    "RESEND",
+    "SENDGRID",
+    "DATABASE_URL",
+    "DB_URL",
+    "POSTGRES_URL",
+    "GOOGLE_CLIENT",
+    "GITHUB_CLIENT",
+    "AWS_SECRET",
 )
 
 # Patterns that strongly indicate an external vendor secret (do not auto-rotate).

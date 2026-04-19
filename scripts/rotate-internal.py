@@ -21,6 +21,7 @@ from pathlib import Path
 
 from _common import (
     INTERNAL_RANDOM_KEYS,
+    NEVER_ROTATE_PATTERNS,
     api,
     confirm,
     green,
@@ -91,11 +92,40 @@ def main() -> int:
         "--apply", action="store_true", help="Actually rotate (default: dry-run)"
     )
     p.add_argument("--audit-file", help="Path to audit snapshot (default: latest)")
+    p.add_argument(
+        "--include",
+        default="",
+        help="Comma-separated extra keys to rotate (e.g. MY_CUSTOM_SECRET). "
+        "Refuses anything matching NEVER_ROTATE_PATTERNS.",
+    )
+    p.add_argument(
+        "--exclude",
+        default="",
+        help="Comma-separated keys to skip even if in the default list.",
+    )
     args = p.parse_args()
+
+    include = {s.strip() for s in args.include.split(",") if s.strip()}
+    exclude = {s.strip() for s in args.exclude.split(",") if s.strip()}
+
+    # Safety: refuse to rotate anything that looks like at-rest encryption or
+    # a vendor secret. Users who really want to override must go through
+    # scripts/update-env.py instead.
+    for k in include:
+        if any(p in k.upper() for p in NEVER_ROTATE_PATTERNS):
+            print(red(f"Refused: '{k}' matches NEVER_ROTATE_PATTERNS."))
+            print(
+                red(
+                    "Use scripts/update-env.py instead, after rotating in the vendor dashboard."
+                )
+            )
+            return 1
+
+    allowed = (INTERNAL_RANDOM_KEYS | include) - exclude
 
     snap_path = Path(args.audit_file) if args.audit_file else find_audit()
     rows = json.loads(snap_path.read_text())
-    targets = [r for r in rows if r["key"] in INTERNAL_RANDOM_KEYS]
+    targets = [r for r in rows if r["key"] in allowed]
 
     if not targets:
         print(green("No internal-random secrets present. Nothing to rotate."))
