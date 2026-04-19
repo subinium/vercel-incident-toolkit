@@ -2,18 +2,26 @@
 
 Rotate Supabase service role key, JWT secret, and (if needed) anon key.
 
+> **Two key systems coexist in 2026.** Supabase is transitioning from legacy JWT-based `anon` / `service_role` keys to a new API keys system (`sb_publishable_...` / `sb_secret_...`). Rotation mechanics differ between the two — check which your project uses before following any step below. Authoritative source: [Supabase — Rotating Anon, Service, and JWT Secrets](https://supabase.com/docs/guides/troubleshooting/rotating-anon-service-and-jwt-secrets-1Jq6yd) and [Understanding API keys](https://supabase.com/docs/guides/api/api-keys).
+
 ## Service role key — `SUPABASE_SERVICE_ROLE_KEY`
 
 This key bypasses Row Level Security. If it leaks, treat as full DB compromise.
 
-1. **Supabase dashboard** → your project → Settings → API.
-2. Click the regenerate icon next to **service_role secret**.
-3. Confirm. The old key stops working immediately.
-4. Copy the new value (Supabase shows it once on this screen — you can re-display from this same screen as long as you're authenticated).
+The legacy `service_role` key is a JWT signed by your project's JWT secret — it cannot be rotated on its own. You have two options:
 
-Side effects:
-- Any backend service using the old key fails immediately. List them first.
-- Common consumers: Vercel functions, GitHub Actions, scheduled jobs, ETL pipelines, admin scripts.
+- **Legacy key, urgent rotation:** rotate the JWT secret (see next section). This invalidates the `service_role` **and** the `anon` key **and** every outstanding user JWT. Expect full forced-logout and update every consumer.
+- **Preferred path:** migrate to the new API keys system (`sb_secret_...`), where a compromised secret key can be rotated independently without touching the JWT secret or signing out users. New projects already default to this; existing projects can migrate via Dashboard → Project Settings → API Keys.
+
+Follow the official rotation guide linked above for the exact UI — the dashboard is actively changing as Supabase phases legacy keys out.
+
+Side effects (legacy path, via JWT secret rotation):
+- Every outstanding user session JWT is invalidated — every signed-in user is logged out.
+- The `anon` key changes at the same time; every client app (web, mobile) needs the new value.
+- Any backend service using the old `service_role` fails. List them first: Vercel functions, GitHub Actions, scheduled jobs, ETL pipelines, admin scripts.
+
+Side effects (new API keys path):
+- Old and new `sb_secret_...` both work during the swap. Delete the old one only after every consumer is updated.
 
 After rotating in Supabase, upload to Vercel for every project that uses it:
 ```
@@ -31,13 +39,17 @@ Trigger production redeploy and smoke test:
 vercel --prod --cwd /path/to/project
 ```
 
-## JWT secret — `SUPABASE_JWT_SECRET`
+## JWT secret / JWT signing keys
 
-Rotating invalidates **every existing JWT** issued by Supabase, including refresh tokens. Every signed-in user is logged out.
+Rotating the JWT secret invalidates **every outstanding JWT** issued by Supabase — all user sessions and the legacy `anon` / `service_role` keys (which are themselves JWTs). Every signed-in user is logged out.
 
-1. Settings → API → JWT Secret → Generate new secret.
-2. Save the new value, upload to Vercel as above.
-3. Communicate the forced-logout to users if customer-facing.
+UI is moving: older projects show **Settings → API → JWT Secret**; newer projects use **Project Settings → JWT Signing Keys** with asymmetric keys that support key IDs and overlap rotation. Follow Supabase's [JWT Signing Keys docs](https://supabase.com/docs/guides/auth/signing-keys) for the flow that matches your project.
+
+After rotating:
+1. Capture the new JWT secret / key.
+2. Upload any app-side env var that holds it (commonly `SUPABASE_JWT_SECRET` for self-hosted or custom JWT verification).
+3. Upload the new `anon` and `service_role` values to every Vercel project.
+4. Communicate the forced-logout to users if customer-facing.
 
 ## Anon key — `SUPABASE_ANON_KEY` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
@@ -45,9 +57,7 @@ The anon key is **designed to be public** — it ships in the browser bundle. Ro
 
 In normal operation: do not rotate. If your RLS policies are weak and the anon key is being abused, the fix is RLS, not rotation.
 
-In a "rotate everything anyway" panic:
-1. Settings → API → Generate new anon key (this is gated behind support on some plans).
-2. Update everywhere: Vercel, all client builds, all mobile apps. Old key continues working until you delete it.
+For legacy projects, the `anon` key is a JWT — it cannot be rotated independently. Rotating it means rotating the JWT secret, which also rotates `service_role` and logs out all users (see section above). For new-API-keys projects, the `sb_publishable_...` counterpart can be rotated independently via the API Keys dashboard; old and new both work during overlap.
 
 ## Database password (if connecting via direct connection string, not REST)
 
