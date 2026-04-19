@@ -4,6 +4,8 @@
 
 > ⚠️ **Disclaimer.** Not an official tool. Not a complete answer. Not a substitute for thinking. A **guideline skill** — a structured reference with *optional* CLI automation — written by one engineer in the hours after the [Vercel April 2026 security incident](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident). Read every script before `--apply`. Use at your own risk. Authoritative guidance is always the official Vercel docs (linked throughout).
 
+> 🤖 **Don't hand this skill to an AI and walk away.** This toolkit operates on your live Vercel account. Before any `--apply`, audit the scripts — by yourself, or *alongside* an AI that explains each script, justifies its plan, and diffs your copy against the upstream `main`. "The AI said it's fine" is a checkpoint, not a green light. Every destructive action is your decision.
+
 A **guideline-first toolkit + Claude Code skill** for **Vercel account hardening and incident response**. Think of it as a checklist you can execute by hand *or* let scripts execute for you — your choice at each step. Vercel-only scope. No runtime dependencies.
 
 ## Scope — what this touches
