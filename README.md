@@ -1,5 +1,7 @@
 # vercel-incident-toolkit
 
+**English** · [한국어](README.ko.md) · [日本語](README.ja.md) · [简体中文](README.zh-Hans.md)
+
 > ⚠️ **Disclaimer.** Not an official tool. Not a complete answer. Not a substitute for thinking. One engineer's fast playbook written in the hours after the [Vercel April 2026 security incident](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident). Read every script before `--apply`. Use at your own risk. Authoritative guidance is always the official Vercel docs (linked throughout).
 
 A toolkit + Claude Code skill for **Vercel account hardening and incident response**. Vercel-only scope. No runtime dependencies.
