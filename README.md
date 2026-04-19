@@ -8,6 +8,43 @@
 
 A **guideline-first toolkit + Claude Code skill** for **Vercel account hardening and incident response**. Think of it as a checklist you can execute by hand *or* let scripts execute for you — your choice at each step. Vercel-only scope. No runtime dependencies.
 
+## Install
+
+There's no magic and no package registry — a "Claude Code skill" is just a directory with a `SKILL.md` sitting under `~/.claude/skills/`. Pick whichever of these matches how you want to run it:
+
+### Option 1 — Claude Code skill (auto-routed)
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git \
+  ~/.claude/skills/vercel-incident-toolkit
+```
+
+That's the entire install. Claude Code discovers anything with a `SKILL.md` in that directory and routes prompts like *"audit my Vercel env vars"* or *"help me respond to a Vercel breach"* to it. Restart the Claude Code session if you don't see it picked up.
+
+### Option 2 — Standalone CLI (no Claude Code needed)
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git
+cd vercel-incident-toolkit
+python3 scripts/preflight.py
+```
+
+Every script in `scripts/` works directly from the terminal. Requirements: Python ≥ 3.10, `vercel` CLI logged in (`vercel login`). No other dependencies.
+
+### Option 3 — `install.sh` (optional helper)
+
+If you want a single-shot "verify my environment + optionally symlink into the skills directory + run preflight," there's a small bash helper:
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git
+cd vercel-incident-toolkit
+bash install.sh        # ~50 lines, plain bash, read it first
+```
+
+It does exactly what Options 1 and 2 do manually — nothing extra, nothing installed globally, no shell rc changes.
+
+> Pin to a tag for reproducibility: `git checkout v0.1.0` after any of the above.
+
 ## Scope — what this touches
 
 - **Your entire Vercel account, via the local `vercel` CLI authentication.** Enumerates every team you're in and every project in those teams through the documented Vercel REST API. Not limited to any specific repo or local directory.
@@ -103,6 +140,19 @@ Rules that follow:
 3. Per Vercel docs, "to mark an existing environment variable as sensitive, remove and re-add it with the Sensitive option enabled." Type upgrades are delete+create, not in-place edits.
 
 ---
+
+## Deliberately not automated — and why
+
+Things this toolkit *could* mechanically do but intentionally will not. Read these before asking "why didn't it just do X?"
+
+- **Harden leaked values to `sensitive`.** `harden-to-sensitive.py` preserves the current value while changing storage type. If the value was already leaked in the Vercel breach, hardening it only creates a false sense of security — the old value is still in the wild. Correct order: **rotate at the vendor first**, then `update-env.py` uploads the *new* value as sensitive. Running harden on un-rotated vendor keys is the wrong sequence.
+- **Rotate external vendor keys.** The toolkit never logs into Supabase / Neon / Google OAuth / CryptoQuant / etc. on your behalf. Vendor rotation requires your 2FA, and each rotation has downstream consequences (webhook signatures, CI env, local `.env`) that need your team's timing call. Runbooks walk you through each, one at a time.
+- **Revoke tokens on OTHER machines.** `vercel logout` only invalidates the current machine's CLI token. The broader revoke (Dashboard → Account → Tokens → revoke anything you don't recognize) is a per-token human decision. Automating "revoke all" would silently lock out your CI, teammates, and other laptops.
+- **Rotate long-lived encryption keys** (e.g. `ENCRYPTION_KEY`, `DATA_ENCRYPTION`, `JWT_SECRET`, `REFRESH_TOKEN_SECRET`). These commonly sign or encrypt stateful data (DB columns, persistent sessions, refresh grants). Rotating breaks access to anything encrypted under the old key. The `NEVER_ROTATE_PATTERNS` list refuses these — you must migrate data first.
+- **Disable any safety setting.** The toolkit won't toggle Git Fork Protection, Deployment Protection, Build Logs Protection off. Enabling them is fine; disabling is always a deliberate human decision after reading the trade-off.
+- **Run `harden --apply` on a large account without per-project review.** Supported, but the default dry-run exists because hardening is irreversible without a rotation. Read the plan before typing `--apply`.
+
+If you disagree with any of these defaults: the code is short, open, and commented. Fork, document the change at the top of your README, and go.
 
 ## Is this toolkit the right fit?
 

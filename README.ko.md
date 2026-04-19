@@ -8,6 +8,43 @@
 
 Vercel 계정 하드닝 + 사고 대응을 위한 **가이드라인 중심 toolkit 겸 Claude Code 스킬**. 체크리스트라고 생각하시면 돼요 — 손으로 하나씩 해도 되고, 스크립트가 실행하게 해도 되고, 단계별로 선택하면 됩니다. **Vercel 전용**, 런타임 의존성 없음.
 
+## 설치
+
+거창한 거 없어요. "Claude Code 스킬"은 결국 `~/.claude/skills/` 밑에 `SKILL.md` 들어있는 디렉토리 하나. 패키지 레지스트리도 없음. 실행 방식에 따라 셋 중 하나:
+
+### 옵션 1 — Claude Code 스킬로 (자동 라우팅)
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git \
+  ~/.claude/skills/vercel-incident-toolkit
+```
+
+이게 설치 전부. Claude Code가 그 디렉토리의 `SKILL.md`를 자동 발견하고 *"내 Vercel env var 감사해줘"*·*"Vercel 침해 대응"* 같은 프롬프트를 이리로 라우팅해요. 바로 인식이 안 되면 Claude Code 세션 재시작.
+
+### 옵션 2 — 독립 CLI (Claude Code 불필요)
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git
+cd vercel-incident-toolkit
+python3 scripts/preflight.py
+```
+
+`scripts/`의 모든 스크립트가 터미널에서 바로 동작. 요구사항: Python ≥ 3.10, `vercel` CLI 로그인(`vercel login`). 그 외 의존성 없음.
+
+### 옵션 3 — `install.sh` (선택적 헬퍼)
+
+"환경 검증 + 선택적 symlink + preflight 한 번에" 원하시면 작은 bash 헬퍼:
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git
+cd vercel-incident-toolkit
+bash install.sh        # ~50줄, 평범한 bash, 먼저 읽어보세요
+```
+
+옵션 1+2를 수동으로 하는 것과 정확히 같은 일. 그 이상 없음, 전역 설치 없음, shell rc 변경 없음.
+
+> 재현성을 위해 태그에 고정: 위 세 옵션 중 어느 것이든 뒤에 `git checkout v0.1.0`.
+
 ## 범위 — 이게 건드리는 것
 
 - **당신의 Vercel 계정 전체를 로컬 `vercel` CLI 인증을 통해** — 공식 Vercel REST API로 모든 소속 팀과 해당 팀 내 모든 프로젝트를 열거. 특정 레포나 로컬 디렉토리에 한정되지 않음.
@@ -103,6 +140,19 @@ Vercel [sensitive env var 문서](https://vercel.com/docs/environment-variables/
 3. 공식 문서: *"기존 env var를 sensitive로 바꾸려면 remove + re-add"* — 타입 변경은 in-place edit 아님.
 
 ---
+
+## 의도적으로 자동화하지 않은 것 — 그 이유
+
+기술적으로는 자동화가 가능했지만 **일부러 하지 않은 것들**. "왜 X를 바로 처리 안 해?"를 묻기 전에 읽어보세요.
+
+- **유출된 값을 `sensitive`로 하드닝.** `harden-to-sensitive.py`는 현재 값 그대로 저장 타입만 바꿔요. 이미 Vercel 침해로 유출된 값이면, 하드닝은 **보안 착시**만 만들 뿐 — 옛 값은 여전히 외부에 있음. 올바른 순서: **벤더에서 먼저 회전** → 그 *새* 값을 `update-env.py`가 sensitive로 업로드. 회전 안 한 벤더 키에 harden을 돌리는 건 잘못된 순서.
+- **외부 벤더 키 회전.** toolkit은 Supabase/Neon/Google OAuth/CryptoQuant 등에 본인 대신 로그인하지 않음. 벤더 회전은 본인 2FA가 필요하고, 매 회전마다 다운스트림(웹훅 서명, CI env, 로컬 `.env`)에 영향이 있어 본인 팀의 타이밍 판단이 필요. Runbook이 하나씩 안내.
+- **다른 머신의 토큰 revoke.** `vercel logout`은 현재 머신의 CLI 토큰만 무효화. 대시보드에서 전체 revoke 하는 건 토큰별 인간 결정 — 자동으로 "전부 revoke"하면 CI·팀원·다른 랩톱이 조용히 잠기게 됨.
+- **장기 암호화 키 회전** (`ENCRYPTION_KEY`, `DATA_ENCRYPTION`, `JWT_SECRET`, `REFRESH_TOKEN_SECRET` 등). 이런 키는 보통 상태 데이터(DB 컬럼, 영속 세션, refresh grant)를 서명·암호화. 회전하면 옛 키로 암호화된 데이터 전부 접근 불가. `NEVER_ROTATE_PATTERNS`가 이걸 거부 — 먼저 데이터 마이그레이션이 필요.
+- **안전 설정 비활성화.** Git Fork Protection, Deployment Protection, Build Logs Protection 을 OFF로 토글하지 않음. ON은 안전, OFF는 trade-off를 이해한 뒤 본인이 하는 결정.
+- **대규모 계정에서 프로젝트별 검토 없이 `harden --apply`.** 지원은 하지만 dry-run이 기본인 이유는 회전 없이는 하드닝이 되돌릴 수 없어서. `--apply` 치기 전에 plan 읽기.
+
+이 default들에 동의 안 되면: 코드 짧고 오픈되어 있어요. fork → README 최상단에 변경 내용 명시 → 실행.
 
 ## 이 toolkit이 맞는 대상
 

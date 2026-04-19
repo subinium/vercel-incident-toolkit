@@ -8,6 +8,43 @@
 
 Vercel アカウントのハードニングおよびインシデント対応のための**ガイドライン重視の toolkit 兼 Claude Code スキル**。チェックリストだと思ってください — 手作業で進めても、スクリプトに任せても、ステップごとに選べます。**Vercel 専用**、ランタイム依存ゼロ。
 
+## インストール
+
+仕掛けはありません。「Claude Code スキル」とは要するに `~/.claude/skills/` の下に `SKILL.md` が入ったディレクトリがあるだけ。パッケージレジストリもありません。実行方法に応じて以下の 3 つから:
+
+### オプション 1 — Claude Code スキルとして(自動ルーティング)
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git \
+  ~/.claude/skills/vercel-incident-toolkit
+```
+
+これでインストールは完了です。Claude Code はそのディレクトリの `SKILL.md` を自動検出し、*「Vercel の env var を監査して」*・*「Vercel 侵害対応」* のようなプロンプトをここにルーティングします。すぐに検出されない場合は Claude Code のセッションを再起動してください。
+
+### オプション 2 — スタンドアロン CLI(Claude Code 不要)
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git
+cd vercel-incident-toolkit
+python3 scripts/preflight.py
+```
+
+`scripts/` のすべてのスクリプトは端末から直接動きます。要件: Python >= 3.10、`vercel` CLI ログイン済(`vercel login`)。他に依存なし。
+
+### オプション 3 — `install.sh`(任意のヘルパー)
+
+「環境検証 + 任意で symlink + preflight 実行」をまとめて行いたい場合、小さな bash ヘルパー:
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git
+cd vercel-incident-toolkit
+bash install.sh        # ~50 行、普通の bash、先に読んでください
+```
+
+オプション 1 と 2 を手動で行うのと全く同じ処理しかしません。それ以上のことはせず、グローバルインストールもなし、shell rc の変更もなし。
+
+> 再現性のためにタグに固定: いずれのオプションの後でも `git checkout v0.1.0`。
+
 ## スコープ — これが触れる範囲
 
 - **ローカルの `vercel` CLI 認証を使って、あなたの Vercel アカウント全体**(公式 Vercel REST API 経由で所属するすべてのチームとそのプロジェクトを列挙)。特定のリポジトリやローカルディレクトリには限定されません。
@@ -103,6 +140,19 @@ Vercel の [sensitive environment variables ドキュメント](https://vercel.c
 3. 公式: *「既存 env var を sensitive にするには remove + re-add」* — 型変更は in-place edit ではない。
 
 ---
+
+## 意図的に自動化していないこと — その理由
+
+技術的には自動化できるが、あえて**自動化しないこと**。「なぜ X を自動で処理しないの?」と聞く前に一読してください。
+
+- **漏洩した値を `sensitive` に格上げ。** `harden-to-sensitive.py` は現在の値を保持したままストレージ種別だけを変えます。値が既に Vercel 侵害で漏れていた場合、ハードニングは**偽りの安心**を生むだけ — 古い値は既に外にあります。正しい順序は **先にベンダー側でローテート**、その*新しい*値を `update-env.py` で sensitive としてアップロード。未ローテのベンダーキーに harden を走らせるのは順序が逆です。
+- **外部ベンダーキーのローテート。** toolkit は Supabase / Neon / Google OAuth / CryptoQuant 等にあなたの代わりにログインしません。ベンダーローテーションはあなたの 2FA が必要で、各ローテには下流(Webhook 署名、CI env、ローカル `.env`)への影響があり、チームのタイミング判断が不可欠。Runbook が一つずつ案内します。
+- **別マシンのトークン revoke。** `vercel logout` は現在マシンの CLI トークンのみを無効化。ダッシュボードでの一括 revoke はトークン毎に人間が判断すべき — 「全 revoke」を自動化すると CI・同僚・他ラップトップが静かにロックアウトされます。
+- **長期暗号鍵のローテート**(`ENCRYPTION_KEY`, `DATA_ENCRYPTION`, `JWT_SECRET`, `REFRESH_TOKEN_SECRET` 等)。これらは通常ステートフルなデータ(DB カラム、永続セッション、リフレッシュ grant)を署名・暗号化。ローテすると古い鍵で暗号化されたデータに到達不可。`NEVER_ROTATE_PATTERNS` がこれを拒否 — 先にデータ移行が必要です。
+- **安全設定の無効化。** Git Fork Protection / Deployment Protection / Build Logs Protection を OFF にしません。有効化は問題ありませんが、無効化はトレードオフを理解した上での人間の判断。
+- **大規模アカウントでプロジェクト毎レビューなしに `harden --apply`。** サポートはしますが、デフォルトを dry-run にしている理由は、ハードニングがローテなしでは戻せないから。`--apply` を打つ前に plan を読んでください。
+
+これらのデフォルトに同意できない場合: コードは短く、公開され、コメント付きです。fork → README 冒頭に変更点を明記 → 実行。
 
 ## この toolkit が合う対象
 

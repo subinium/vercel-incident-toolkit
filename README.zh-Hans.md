@@ -8,6 +8,43 @@
 
 用于 **Vercel 账户加固与事件响应**的**以指南为主的 toolkit + Claude Code 技能**。把它当成一份清单:可以一项项手动做,也可以交给脚本执行,每一步都由你选择。**仅限 Vercel**,零运行时依赖。
 
+## 安装
+
+没什么玄学。所谓"Claude Code 技能",其实就是 `~/.claude/skills/` 下一个含有 `SKILL.md` 的目录。没有包管理注册表。按你的使用方式三选一:
+
+### 方式 1 — 作为 Claude Code 技能(自动路由)
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git \
+  ~/.claude/skills/vercel-incident-toolkit
+```
+
+这就是全部安装步骤。Claude Code 会自动发现该目录下的 `SKILL.md`,并把诸如 *"审计我的 Vercel 环境变量"*、*"Vercel 事件响应"* 这类提示路由到这里。若未被立即识别,请重启 Claude Code 会话。
+
+### 方式 2 — 独立 CLI(无需 Claude Code)
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git
+cd vercel-incident-toolkit
+python3 scripts/preflight.py
+```
+
+`scripts/` 下所有脚本都可直接在终端运行。要求:Python >= 3.10、已登录 `vercel` CLI(`vercel login`)。无其他依赖。
+
+### 方式 3 — `install.sh`(可选的辅助脚本)
+
+如果你想"一次完成环境检查 + 可选 symlink + 运行 preflight",可以用一个简短的 bash 辅助脚本:
+
+```bash
+git clone https://github.com/subinium/vercel-incident-toolkit.git
+cd vercel-incident-toolkit
+bash install.sh        # ~50 行普通 bash,请先阅读
+```
+
+它做的事跟方式 1+2 手动操作完全一致 — 不多做一件事,不做全局安装,不改 shell rc。
+
+> 为可复现性锁定 tag:以上任一方式之后执行 `git checkout v0.1.0`。
+
 ## 范围 — 它会触及什么
 
 - **通过本机的 `vercel` CLI 认证,作用于你整个 Vercel 账户** — 通过官方 Vercel REST API 枚举你所在的每一个团队以及其中的每一个项目。不受限于某个仓库或本地目录。
@@ -103,6 +140,19 @@ python3 scripts/harden-to-sensitive.py --apply
 3. 官方:*"要将现有 env var 标为 sensitive,需先删除再重新添加"* — 类型变更不是原地编辑。
 
 ---
+
+## 有意未自动化 — 原因
+
+技术上可以自动化但**刻意不做**的操作。在问"为什么它不直接帮我做 X?"之前,请先读这里。
+
+- **把已泄露的值加固为 `sensitive`。** `harden-to-sensitive.py` 会保留当前值,只改存储类型。如果这个值已经在 Vercel 事件中泄露,仅加固只会制造**虚假的安全感** — 旧值仍在外部。正确顺序是:**先在 vendor 侧轮换** → 再由 `update-env.py` 把*新*值作为 sensitive 上传。对尚未在 vendor 轮换的 key 执行 harden 是错误顺序。
+- **轮换外部 vendor 密钥。** toolkit 不会替你登录 Supabase / Neon / Google OAuth / CryptoQuant 等服务。vendor 轮换需要你的 2FA,每次轮换都有下游影响(webhook 签名、CI env、本地 `.env`),需要团队的时机决策。Runbook 会逐一带你做。
+- **吊销其他机器上的 token。** `vercel logout` 只吊销当前机器的 CLI token。dashboard 的"全部 revoke"是逐个 token 的人类决策 — 自动化会悄悄锁住 CI、同事和其他笔记本。
+- **轮换长期加密密钥**(`ENCRYPTION_KEY`, `DATA_ENCRYPTION`, `JWT_SECRET`, `REFRESH_TOKEN_SECRET` 等)。这类密钥通常用于签名或加密有状态数据(DB 字段、持久会话、refresh 凭据)。轮换后用旧密钥加密的数据全部不可访问。`NEVER_ROTATE_PATTERNS` 会拒绝它们 — 你必须先完成数据迁移。
+- **关闭任何安全设置。** 不会把 Git Fork Protection / Deployment Protection / Build Logs Protection 切到 OFF。开启没问题,关闭必须是你理解权衡之后的决定。
+- **在大账户上未经按项目审阅就 `harden --apply`。** 支持,但默认 dry-run 的原因是:未轮换时,加固不可逆。敲 `--apply` 前请先读计划。
+
+若你不同意以上默认设置:代码很短、开源、有注释。fork 并在你的 README 顶部高声说明变更,然后再跑。
 
 ## 是否适合你
 
