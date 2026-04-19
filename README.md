@@ -2,9 +2,25 @@
 
 **English** · [한국어](README.ko.md) · [日本語](README.ja.md) · [简体中文](README.zh-Hans.md)
 
-> ⚠️ **Disclaimer.** Not an official tool. Not a complete answer. Not a substitute for thinking. One engineer's fast playbook written in the hours after the [Vercel April 2026 security incident](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident). Read every script before `--apply`. Use at your own risk. Authoritative guidance is always the official Vercel docs (linked throughout).
+> ⚠️ **Disclaimer.** Not an official tool. Not a complete answer. Not a substitute for thinking. A **guideline skill** — a structured reference with *optional* CLI automation — written by one engineer in the hours after the [Vercel April 2026 security incident](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident). Read every script before `--apply`. Use at your own risk. Authoritative guidance is always the official Vercel docs (linked throughout).
 
-A toolkit + Claude Code skill for **Vercel account hardening and incident response**. Vercel-only scope. No runtime dependencies.
+A **guideline-first toolkit + Claude Code skill** for **Vercel account hardening and incident response**. Think of it as a checklist you can execute by hand *or* let scripts execute for you — your choice at each step. Vercel-only scope. No runtime dependencies.
+
+## Scope — what this touches
+
+- **Your entire Vercel account, via the local `vercel` CLI authentication.** Enumerates every team you're in and every project in those teams through the documented Vercel REST API. Not limited to any specific repo or local directory.
+- **Does NOT scan your local git repositories.** Local paths are only touched when *you* explicitly pass a path to `scripts/ignore-setup.py`.
+- **Does NOT talk to any host other than `api.vercel.com`.**
+- **Does NOT modify shell rc files, system keychain, or global config.**
+
+## Two ways to use it — pick per-step
+
+| Mode | How | When |
+|---|---|---|
+| **Automated (CLI)** | Run the scripts with `--apply` | You trust the dry-run output and want the toolkit to execute the mutation |
+| **Manual (reference)** | Run `scripts/audit.py` (always read-only) + `scripts/handoff-gen.py`, then do everything else by hand in the Vercel dashboard and vendor dashboards | You want the toolkit to tell you *what* needs to change but want to make every change yourself |
+
+You don't have to pick one mode for the whole incident — mix per step. Common choice: automated for the internal-random rotation in Flow C, manual for every external vendor rotation. All destructive scripts are **dry-run by default** and prompt `y/N` before any change.
 
 ---
 

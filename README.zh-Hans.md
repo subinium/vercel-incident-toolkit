@@ -2,9 +2,25 @@
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · **简体中文**
 
-> ⚠️ **免责声明。** 这不是官方工具,不是完整答案,也不能替代你自己的判断。这是一位工程师在 [Vercel 2026 年 4 月安全事件](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident)披露后数小时内赶写的 playbook。在使用 `--apply` 之前请阅读每个脚本。使用风险自负。权威指引始终是 Vercel 官方文档(正文内附链接)。
+> ⚠️ **免责声明。** 这不是官方工具,不是完整答案,也不能替代你自己的判断。这是一位工程师在 [Vercel 2026 年 4 月安全事件](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident)披露后数小时内整理的**指南性技能**(结构化清单 + *可选的* CLI 自动化)。在使用 `--apply` 之前请阅读每个脚本。使用风险自负。权威指引始终是 Vercel 官方文档(正文内附链接)。
 
-用于 **Vercel 账户加固与事件响应**的 toolkit + Claude Code 技能。**仅限 Vercel**,零运行时依赖。
+用于 **Vercel 账户加固与事件响应**的**以指南为主的 toolkit + Claude Code 技能**。把它当成一份清单:可以一项项手动做,也可以交给脚本执行,每一步都由你选择。**仅限 Vercel**,零运行时依赖。
+
+## 范围 — 它会触及什么
+
+- **通过本机的 `vercel` CLI 认证,作用于你整个 Vercel 账户** — 通过官方 Vercel REST API 枚举你所在的每一个团队以及其中的每一个项目。不受限于某个仓库或本地目录。
+- **不扫描本地 git 仓库。** 仅当你明确地把某条路径传给 `scripts/ignore-setup.py` 时才会触及本地路径。
+- **除 `api.vercel.com` 之外不与任何主机通信。**
+- **不修改 shell rc、系统 keychain 或全局配置。**
+
+## 两种使用方式 — 可按步骤切换
+
+| 模式 | 做法 | 适用情形 |
+|---|---|---|
+| **自动(CLI)** | 以 `--apply` 运行脚本 | 你信任 dry-run 的输出,愿意让 toolkit 执行变更 |
+| **手动(参考)** | 运行 `scripts/audit.py`(始终只读)与 `scripts/handoff-gen.py`,其余全部在 Vercel dashboard 与 vendor dashboard 手动完成 | 希望 toolkit 告诉你*要改什么*,但实际变更由你亲手完成 |
+
+不必为整个事件选同一种模式 — 每一步可自由组合。常见选择:Flow C 的内部随机值轮换走自动,vendor 轮换走手动。所有破坏性脚本**默认为 dry-run**,变更前均会 `y/N` 确认。
 
 ---
 

@@ -2,9 +2,25 @@
 
 [English](README.md) · **한국어** · [日本語](README.ja.md) · [简体中文](README.zh-Hans.md)
 
-> ⚠️ **주의.** 공식 도구 아니고, 완전한 해답 아니고, 사고(思考)를 대체하지도 않아요. [Vercel 2026년 4월 보안 사고](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident) 발표 직후 엔지니어 한 명이 급히 작성한 playbook입니다. `--apply` 붙이기 전에 모든 스크립트 읽어보세요. 본인 책임. 최종 권위는 언제나 Vercel 공식 문서 (본문 곳곳에 링크).
+> ⚠️ **주의.** 공식 도구 아니고, 완전한 해답 아니고, 사고(思考)를 대체하지도 않아요. [Vercel 2026년 4월 보안 사고](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident) 발표 직후 엔지니어 한 명이 급히 정리한 **가이드라인 스킬**(구조화된 체크리스트 + *선택적* CLI 자동화) 입니다. `--apply` 붙이기 전에 모든 스크립트 읽어보세요. 본인 책임. 최종 권위는 언제나 Vercel 공식 문서 (본문 곳곳에 링크).
 
-Vercel 계정 하드닝 + 사고 대응용 toolkit 겸 Claude Code 스킬. **Vercel 전용**, 런타임 의존성 없음.
+Vercel 계정 하드닝 + 사고 대응을 위한 **가이드라인 중심 toolkit 겸 Claude Code 스킬**. 체크리스트라고 생각하시면 돼요 — 손으로 하나씩 해도 되고, 스크립트가 실행하게 해도 되고, 단계별로 선택하면 됩니다. **Vercel 전용**, 런타임 의존성 없음.
+
+## 범위 — 이게 건드리는 것
+
+- **당신의 Vercel 계정 전체를 로컬 `vercel` CLI 인증을 통해** — 공식 Vercel REST API로 모든 소속 팀과 해당 팀 내 모든 프로젝트를 열거. 특정 레포나 로컬 디렉토리에 한정되지 않음.
+- **로컬 git 레포지토리를 스캔하지 않음.** 로컬 경로는 당신이 `scripts/ignore-setup.py`에 명시적으로 path를 넘길 때만 건드림.
+- **`api.vercel.com` 외에는 어떤 호스트와도 통신하지 않음.**
+- **shell rc 파일·시스템 키체인·전역 설정을 수정하지 않음.**
+
+## 사용 방식 2가지 — 단계별로 선택
+
+| 모드 | 방법 | 언제 |
+|---|---|---|
+| **자동 (CLI)** | 스크립트를 `--apply`로 실행 | dry-run 출력을 신뢰하고 toolkit이 mutation을 실행하길 원함 |
+| **수동 (레퍼런스)** | `scripts/audit.py`(항상 읽기 전용) + `scripts/handoff-gen.py` 돌리고, 나머지는 Vercel 대시보드와 벤더 대시보드에서 손으로 | toolkit에게 *무엇*을 바꿔야 하는지는 듣되 모든 변경은 본인이 하고 싶음 |
+
+전체 사건을 한 모드로 통일할 필요 없어요 — 단계별로 섞으세요. 흔한 선택: Flow C의 내부 랜덤 회전은 자동, 외부 벤더 회전은 수동. 모든 파괴적 스크립트는 **dry-run이 디폴트**이고 변경 전에 `y/N` 확인.
 
 ---
 
