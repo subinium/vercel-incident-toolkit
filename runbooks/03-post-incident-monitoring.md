@@ -18,7 +18,7 @@ Rotation closes the immediate hole. Lingering threats — backdoors, persistent 
 
 ## One-time, ASAP
 
-- Export the Vercel Audit Log covering the entire incident window (initial breach disclosure → rotation completion). Save to `~/.vercel-security/audit-log-export-<YYYY-MM>.json`. Pro tier retains 90 days only.
+- Export the Vercel Audit Log covering the entire incident window (initial breach disclosure → rotation completion). Audit Log is an **Enterprise-plan feature**; if available, Team Settings → Security & Privacy → Audit Log → Export CSV. Save locally as `~/.vercel-security/audit-log-export-<YYYY-MM>.csv`. Pro / Hobby teams don't have this view — rely on the manual indicators documented in `04-after-rotation.md` Step 4.
 - Force a fresh production redeploy on every project from a known-good commit. This drops any warm serverless instance still holding old env values, and overwrites any tampered build artifact.
 - Inspect every Vercel integration (Slack, GitHub, Sentry, etc.) — verify token scopes, revoke unused.
 

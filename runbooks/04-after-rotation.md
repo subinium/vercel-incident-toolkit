@@ -83,19 +83,27 @@ Do them sequentially (not in parallel). For each:
 
 ## Step 4 — Audit log review (within 24 hours)
 
-Vercel retains Audit Log for 90 days (Pro) or 365 days (Enterprise). Export the incident window **before it rolls off**.
+Per Vercel's official docs, **Audit Log is available on Enterprise plans only**. If you are on Enterprise:
 
-1. Teams → Settings → Audit Log.
+1. Team Settings → Security & Privacy → **Audit Log** (owner role required).
 2. Filter to the period between earliest suspected compromise and now.
-3. Export to JSON. Save to `~/.vercel-security/audit-log-<YYYY-MM>.json` (mode `0600`).
-4. Review every line for:
-   - Members added / removed / role-changed
-   - Tokens created / revoked
-   - Projects created / deleted / transferred
-   - Deploy protection toggled
-   - Teams changed
+3. **Export CSV** — the email link is valid for 24 hours. CSV windows up to 90 days do not impact billing; larger ranges may. Save the exported file locally as `~/.vercel-security/audit-log-<YYYY-MM>.csv` (mode `0600`).
+4. Review every row for:
+   - `team.member.added` / `team.member.deleted` / `team.member.role.updated`
+   - `project.env_variable.created` / `.updated` / `.deleted` you didn't make
+   - `project.password_protection.disabled` or `project.sso_protection.disabled`
+   - `project.transfer.started` / `.completed`
+   - `shared_env_variable.decrypted` — one of the strongest indicators of snooping
+   - `deploy_hook.deduped` + any unusual deploy origins
 
 Anything you can't attribute to a known teammate = escalate.
+
+**If you are on Pro or Hobby (no Audit Log access):** you cannot do this step as a formal review, but you can do the following manually:
+- Account → Tokens — list every token and revoke anything unrecognized
+- Team → Members — verify every member and their role
+- Per project → Settings → Git → Deploy Hooks — list and rotate unknown hooks
+- Per project → Deployments — scan recent production deploys; compare deployed git SHA against your main branch
+- Per project → Settings → Environment Variables — compare against your expected list; diff with the toolkit audit snapshot
 
 ---
 

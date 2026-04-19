@@ -229,7 +229,7 @@ When running or advising on Flows B–D, verbalize these checks to the user as a
 5. **Downstream `.env.example`.** If `.env.example` in the repo has a *real* value, it was already leaked. Rewrite to placeholders and treat as incident.
 6. **Vercel CLI auth reuse.** If the user is on multiple machines, `vercel logout && vercel login` rotates the token only on the current machine. Others still have the old token — tell them.
 7. **Preview deployments with old secrets.** Old preview deployments retain old env values. Delete stale previews after rotation (`vercel remove --safe`).
-8. **Audit log window.** Vercel Audit Log retains only 90 days on Pro, 365 on Enterprise. Export the relevant window to `~/.vercel-security/` before it rolls off.
+8. **Audit log window.** Per Vercel docs, Audit Log is available on **Enterprise plans only** (team owners, via Team Settings → Security & Privacy → Audit Log). Teams on Pro/Hobby cannot access this view — they must rely on manual indicators (Account → Tokens, Team → Members, Project → Deploy Hooks, recent deployments list). For Enterprise teams: CSV export of up to 90 days does not impact billing; larger windows may.
 9. **Serverless function cache.** Rotating an env var doesn't kill warm Lambda instances immediately. Trigger a redeploy or scale-down to force cold start.
 10. **Third-party dashboards linking back to Vercel deploy.** Slack/Discord notification webhooks, Sentry release tracking — verify their tokens are unaffected (they typically are, but check).
 
