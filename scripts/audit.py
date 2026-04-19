@@ -38,7 +38,7 @@ def main() -> int:
     for scope_name, team_id in scopes:
         try:
             projects = list_projects(team_id)
-        except SystemExit as e:
+        except Exception as e:
             errors.append(f"{scope_name}: {e}")
             continue
         print(f"  {scope_name:<20} {len(projects)} projects")
@@ -49,7 +49,7 @@ def main() -> int:
                 p = futs[fut]
                 try:
                     envs = fut.result()
-                except SystemExit as e:
+                except Exception as e:
                     errors.append(f"{scope_name}/{p['name']}: {e}")
                     continue
                 for e in envs:

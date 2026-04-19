@@ -153,7 +153,6 @@ If you fork this repo and modify these guarantees, document the change loudly. U
 Process docs:
 - [`00-incident-response.md`](runbooks/00-incident-response.md) — minute-by-minute playbook
 - [`01-prevention-hardening.md`](runbooks/01-prevention-hardening.md) — defaults, 2FA, access reviews
-- [`02-external-services.md`](runbooks/02-external-services.md) — which keys rotate where
 - [`03-common-mistakes.md`](runbooks/03-common-mistakes.md) — gotchas, near-misses, what not to do
 
 Per-vendor rotation:

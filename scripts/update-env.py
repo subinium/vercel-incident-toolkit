@@ -71,6 +71,11 @@ def main() -> int:
         action="store_true",
         help="Actually upload (default: dry-run)",
     )
+    p.add_argument(
+        "--redeploy",
+        action="store_true",
+        help="Trigger `vercel --prod` after successful upload (requires being cd'd into the project repo)",
+    )
     args = p.parse_args()
 
     proj, team_id = find_project(args.project)
@@ -154,13 +159,29 @@ def main() -> int:
     rot_log.chmod(0o600)
 
     last = log_entries[-1]
-    if last["status"] == "ok":
-        print(green(f"\n✓ {args.key} uploaded as sensitive."))
-        print(f"  Trigger redeploy: `vercel --prod` or push a commit.")
-        print(f"  Refresh local: `vercel env pull` in the project dir.")
-        return 0
-    print(red(f"\n✗ Upload failed: {last.get('error')}"))
-    return 2
+    if last["status"] != "ok":
+        print(red(f"\n✗ Upload failed: {last.get('error')}"))
+        return 2
+
+    print(green(f"\n✓ {args.key} uploaded as sensitive."))
+    if args.redeploy:
+        import subprocess
+
+        print("  Triggering `vercel --prod`...")
+        try:
+            r = subprocess.run(["vercel", "--prod", "--yes"], timeout=300)
+            if r.returncode != 0:
+                print(red("  Redeploy command returned non-zero. Check output above."))
+        except FileNotFoundError:
+            print(red("  `vercel` CLI not on PATH; skipping redeploy."))
+        except subprocess.TimeoutExpired:
+            print(red("  Redeploy timed out after 5 minutes; check Vercel dashboard."))
+    else:
+        print(
+            f"  Trigger redeploy: `vercel --prod` (or pass --redeploy) or push a commit."
+        )
+    print(f"  Refresh local: `vercel env pull` in the project dir.")
+    return 0
 
 
 if __name__ == "__main__":

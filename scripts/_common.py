@@ -123,7 +123,7 @@ def list_projects(team_id: str | None) -> list[dict]:
             path += f"&until={until}"
         page = api("GET", path, team_id)
         if "__error__" in page:
-            raise SystemExit(f"Project list failed: {page}")
+            raise RuntimeError(f"Project list failed: {page}")
         projects.extend(page.get("projects", []))
         nxt = page.get("pagination", {}).get("next")
         if not nxt:
@@ -134,7 +134,7 @@ def list_projects(team_id: str | None) -> list[dict]:
 def list_env(project_id: str, team_id: str | None) -> list[dict]:
     out = api("GET", f"/v9/projects/{project_id}/env", team_id)
     if "__error__" in out:
-        raise SystemExit(f"Env list failed for {project_id}: {out}")
+        raise RuntimeError(f"Env list failed for {project_id}: {out}")
     return out.get("envs", [])
 
 
