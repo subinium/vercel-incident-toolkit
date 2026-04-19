@@ -106,6 +106,7 @@ def main() -> int:
             raise SystemExit(f"Scope '{args.scope}' not found.")
 
     plan: list[tuple[dict, str | None, dict]] = []  # (project, team_id, env_row)
+    skipped_dev: list[tuple[str, str, list[str]]] = []  # (project, key, targets)
     for team_id, slug in scopes:
         for proj in list_projects(team_id):
             if args.project and proj["name"] != args.project:
@@ -115,10 +116,43 @@ def main() -> int:
                     continue
                 if is_public_key(e["key"]):
                     continue
+                # Vercel constraint: sensitive is not available for the
+                # development target. If the env var includes development,
+                # we skip — user must manually split it into (prod+preview)
+                # and (dev) entries, or accept that development stays encrypted.
+                targets = e.get("target", [])
+                if "development" in targets:
+                    skipped_dev.append((proj["name"], e["key"], targets))
+                    continue
                 plan.append((proj, team_id, e))
 
-    if not plan:
+    if not plan and not skipped_dev:
         print(green("Nothing to harden. Already all sensitive (or public)."))
+        return 0
+
+    if skipped_dev:
+        print(
+            yellow(
+                f"Skipping {len(skipped_dev)} env var(s) with development target "
+                "(Vercel constraint: sensitive is not available for development):"
+            )
+        )
+        for pname, key, targets in sorted(skipped_dev):
+            print(f"  · {pname:<28} {key:<36} target={targets}")
+        print(
+            yellow(
+                "  To harden these: manually split in the dashboard into (prod+preview, sensitive) "
+                "and (development, encrypted), or leave as-is."
+            )
+        )
+        print()
+
+    if not plan:
+        print(
+            green(
+                "No harden-able env vars remain (all are sensitive, public, or dev-only)."
+            )
+        )
         return 0
 
     print(f"Plan: convert {len(plan)} env var(s) to sensitive.\n")
