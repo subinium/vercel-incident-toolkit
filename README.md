@@ -1,200 +1,227 @@
 # vercel-incident-toolkit
 
-> ⚠️ **Disclaimer.** This is not an official tool, not a complete answer, and not a substitute for thinking. It's a fast playbook one engineer wrote in the hours after the [Vercel April 2026 security incident](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident) so other engineers can move quickly. Read every script before you run `--apply`. Use at your own risk.
+> ⚠️ **Disclaimer.** Not an official tool. Not a complete answer. Not a substitute for thinking. One engineer's fast playbook written in the hours after the [Vercel April 2026 security incident](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident). Read every script before `--apply`. Use at your own risk. Authoritative guidance is always the official Vercel docs (linked throughout).
 
-A toolkit + Claude Code skill for **Vercel account hardening and incident response**. Vercel-only scope.
+A toolkit + Claude Code skill for **Vercel account hardening and incident response**. Vercel-only scope. No runtime dependencies.
 
-## Vercel April 2026 — do these now
+---
 
-If you got here because of the breach disclosure, the minimum five steps:
+## Vercel April 2026 — first-response checklist
+
+Aligned with Vercel's official recommendation ("review environment variables and use the sensitive environment variable feature"). This toolkit automates the review and adds rotation + handoff docs on top.
+
+### Step 0 — Token & account hygiene FIRST (don't skip)
+
+`vercel logout && vercel login` is **not enough on its own**. During a breach:
+
+1. Go to [vercel.com/account/tokens](https://vercel.com/account/tokens) → **revoke every token** you don't actively need. `vercel logout` only revokes the current machine's CLI token; other machines, CI runners, and integrations hold their own.
+2. [Enable 2FA](https://vercel.com/account/security) if not already. Prefer a hardware key over TOTP.
+3. For each team: Team → Settings → Members → verify every member has 2FA. Remove ex-teammates/contractors.
+4. `vercel logout && vercel login` on this machine to pick up a fresh, known-clean token.
+5. Team → Audit Log → scan the suspected compromise window for `token.create`, `member.add`, `role.change`, `project.create`, deploy-protection toggles.
+
+Only after this, run the toolkit.
+
+### Step 1 — Audit & rotate internal secrets (toolkit)
 
 ```bash
-# 1. Rotate your local Vercel CLI token first
-vercel logout && vercel login
-
-# 2. Clone + run preflight
 git clone https://github.com/subinium/vercel-incident-toolkit
 cd vercel-incident-toolkit
-python3 scripts/preflight.py
-
-# 3. Snapshot every env var across every project (read-only)
-python3 scripts/audit.py
-
-# 4. Rotate internal-random secrets (NextAuth, AUTH, CRON, HMAC, ADMIN_PASSWORD, etc.)
-python3 scripts/rotate-internal.py            # dry-run shows the plan
-python3 scripts/rotate-internal.py --apply    # actually rotates
-
-# 5. Generate per-project handoff docs for the manual vendor rotations
-python3 scripts/handoff-gen.py
+python3 scripts/preflight.py                 # environment checks
+python3 scripts/audit.py                     # read-only inventory
+python3 scripts/rotate-internal.py           # dry-run — shows the plan
+python3 scripts/rotate-internal.py --apply   # actually rotates
+python3 scripts/handoff-gen.py               # per-project next-step docs
 ```
 
-After step 5, open `~/security-incident-<YYYY-MM>-vercel/` for one markdown file per affected project — it lists which Supabase / Postgres / OAuth keys you still need to rotate in the vendor's dashboard, with exact next commands to upload the new value.
+After step 1, open `~/security-incident-<YYYY-MM>-vercel/` — one markdown file per affected project, listing vendor keys that still need manual rotation with the exact follow-up commands.
 
-> Vendor keys (Supabase service role, `DATABASE_URL`, OAuth client secret, third-party APIs) are **never auto-rotated** by this toolkit — those require you to log into the vendor dashboard. Runbooks under [`runbooks/vendor-*.md`](runbooks/) walk you through each one.
+### Step 2 — Rotate external vendor keys (manual, sequential)
 
-## Is this playbook right for you?
+Vendor keys (Supabase service role, `DATABASE_URL`, OAuth client secrets, third-party APIs) are **never auto-rotated**. Follow Vercel's [official rotation pattern](https://vercel.com/docs/environment-variables/rotating-secrets):
 
-Read this before running anything.
+1. Generate new credential in the vendor's dashboard (do **not** invalidate the old one yet).
+2. Upload the new value to Vercel: `python3 scripts/update-env.py <project> <KEY> --from-stdin --apply`.
+3. Redeploy the Vercel project and verify it works.
+4. **Only then** invalidate the old credential in the vendor's dashboard.
 
-**Good fit:** you run a handful of Next.js / Remix / SvelteKit apps on Vercel, use common auth libs (Auth.js / NextAuth / Clerk / Supabase Auth), connect to common databases (Supabase / Neon / Postgres), and want a repeatable first-response in minutes instead of reading 10 blog posts.
+Per-vendor runbooks: [`runbooks/vendor-*.md`](runbooks/). One vendor at a time — never batch.
 
-**Partial fit:** you run non-JS stacks, use esoteric auth (custom JWT with rotation-dependent revocation, JWE with field-level encryption), or have tens of internal services behind a Vercel proxy. Flow A (audit) still works universally. Flow C (auto-rotate) only handles the keys listed above — everything else you do via Flow D (`update-env.py`) after rotating at the source. Use `--include` to add your framework's known-safe randoms.
+### Step 3 — Harden (optional, after rotation)
 
-**Not a fit:** you need a compliance-grade artifact (SOC 2, ISO 27001 evidence), or you're operating in an environment where every change must go through a change-advisory board. This toolkit is a fast operator playbook, not an auditor's checklist.
+```bash
+python3 scripts/harden-to-sensitive.py --apply
+```
 
-**Is the methodology correct per Vercel's disclosure?**
-- The three-tier threat model (`plain` / `encrypted` / `sensitive`) matches [Vercel's public architecture](https://vercel.com/docs/environment-variables/sensitive-environment-variables). Plain = stored unencrypted; encrypted = Vercel holds the decryption key; sensitive = separate key path with restricted access.
-- The conclusion — *assume `encrypted` is leaked on a Vercel-side breach, `sensitive` probably survived but not guaranteed* — follows from that architecture. It's opinionated but defensible.
-- Vercel's official recommendation ("review env vars, use the sensitive feature") is the floor, not the ceiling. This toolkit adds: actually rotate values that were leaked, not just upgrade storage; document manual vendor steps; watch for lingering threats post-incident.
+Converts every non-sensitive env var to `sensitive` type per Vercel's [sensitive env var docs](https://vercel.com/docs/environment-variables/sensitive-environment-variables). Post-hardening, values can't be read back from the dashboard or API — to see one again, rotate it.
 
-**What this won't catch:**
-- Malicious code already baked into a past production deployment (use `vercel ls --prod` + git diff to find)
-- Unauthorized team members added via social engineering (manual audit log review)
-- Tokens held on other devices you forgot about (revoke all tokens centrally from Vercel account settings)
-- Secondary compromise of linked services (separate runbooks for each vendor)
+> **Vercel official constraint:** sensitive type is only available in **production** and **preview** targets — the development target can't be marked sensitive. The toolkit falls back to `encrypted` for development targets automatically.
 
-When in doubt, treat the toolkit's output as a checklist to verify, not a claim that you're done.
+### Step 4 — Post-rotation (see [`runbooks/04-after-rotation.md`](runbooks/04-after-rotation.md))
 
-## Why it exists
+- `vercel env pull` in each project to refresh local `.env`
+- `vercel --prod` per project to force cold-start (drops warm instances holding old env)
+- Update CI/CD secret mirrors (GitHub Actions, etc.)
+- Rotate every [Deploy Hook](https://vercel.com/docs/deployments/deploy-hooks) URL
+- Weekly `scripts/audit.py` for 30 days; diff for unexpected new env vars or projects
 
-When Vercel disclosed that internal systems had been accessed, the recommended user action was to *"review environment variables and use the sensitive environment variable feature."* Most real accounts have dozens of projects, each with several env vars, scattered across personal + team scopes. Doing this by hand is slow, error-prone, and you can't tell from the dashboard which keys are already marked sensitive without clicking into every project.
+---
 
-This skill turns that into a repeatable workflow with four flows:
+## Threat model — aligned with Vercel's architecture
 
-| Flow | When to use | Default mode |
+Per Vercel's [sensitive environment variables docs](https://vercel.com/docs/environment-variables/sensitive-environment-variables):
+
+| Type | Where the decryption key lives | Post-breach assumption |
 |---|---|---|
-| **A. Audit** | Anytime — what secrets do I have, where? | read-only |
-| **B. Harden** | Calm time — mark everything `sensitive`, tighten team access | dry-run |
-| **C. Incident** | Active breach — rotate internal secrets, draft handoff docs | dry-run |
-| **D. Vendor rotation** | Quarterly or on vendor-specific incident | dry-run |
+| `plain` | Nowhere — stored as plaintext | **Assume leaked** |
+| `encrypted` | Vercel internal KMS — decrypted server-side for the dashboard and runtime | **Assume leaked** in a breach reaching internal systems |
+| `sensitive` | Restricted path — *"non-readable once created"*, not returned by the dashboard or API | **Probably survived** unless the breach reached the build/runtime sandbox |
 
-Every destructive script is **dry-run by default**. You have to pass `--apply` to actually change anything, and the script prompts for `y/N` before each batch. Every change is logged to a local file so you can roll back.
+Rules that follow:
+1. Rotation > hardening for any value leaked. Hardening preserves a value that is already compromised.
+2. Sensitive is not magical — build-time access still exposes values if build infra is breached.
+3. Per Vercel docs, "to mark an existing environment variable as sensitive, remove and re-add it with the Sensitive option enabled." Type upgrades are delete+create, not in-place edits.
 
-## Install
+---
 
-### As a Claude Code skill
-```bash
-git clone https://github.com/subinium/vercel-incident-toolkit ~/.claude/skills/vercel-incident-toolkit
-```
-Then just ask Claude Code something like *"audit my Vercel env vars"* or *"help me respond to the Vercel breach"* — it'll read `SKILL.md` and route to the right flow.
+## Is this toolkit the right fit?
 
-### Standalone (no Claude)
-```bash
-git clone https://github.com/subinium/vercel-incident-toolkit
-cd vercel-incident-toolkit
-python3 scripts/preflight.py          # verifies CLI login + env
-python3 scripts/audit.py              # read-only inventory
-python3 scripts/rotate-internal.py    # dry-run, shows plan
-python3 scripts/rotate-internal.py --apply   # actually rotate
-```
+**Good fit:**
+- You run a handful of Next.js / Remix / SvelteKit / Nuxt apps on Vercel
+- You want a repeatable first response in minutes, not hours
+- You use common auth (Auth.js / NextAuth / Clerk / Supabase Auth) and DB (Supabase / Neon / Postgres)
 
-Requirements: Python ≥ 3.10, `vercel` CLI logged in (`vercel login`), no extra dependencies.
+**Partial fit:**
+- Non-JS stacks — Flow A (audit) still works; Flow C (auto-rotate) only handles the listed keys. Use `--include` to add your framework's known-safe randoms.
+- Custom JWE / field-level encryption / rotation-dependent session designs — do those manually.
 
-## The four flows (short version)
+**Not a fit:**
+- Compliance artifacts (SOC 2, ISO 27001). This is an operator playbook, not evidence.
+- Change-advisory-board processes. Every mutation here is immediate.
+
+**What the toolkit does NOT catch (do these manually):**
+- Malicious code baked into a past production deployment → `vercel ls --prod` + git SHA diff
+- Unauthorized team members added via social engineering → Audit Log review
+- Tokens on other devices you forgot about → revoke all tokens centrally
+- Secondary compromise of linked services → per-vendor audit logs
+
+When in doubt, treat the toolkit's output as a verification checklist, not a claim of completion.
+
+---
+
+## The four flows
 
 ### A. Audit — `scripts/audit.py`
-Enumerates every project in every scope (personal + teams), lists every env var, and classifies each by:
-- severity: `OK` (sensitive), `HIGH` (encrypted + matches a secret pattern), `MED` (encrypted + generic), `LOW-PLAIN` (plaintext).
-- vendor hint: Supabase, Postgres, OAuth providers, Auth.js, Stripe, Anthropic, OpenAI, generic HMAC/JWT, etc.
-
-Writes `~/.vercel-security/audit-<timestamp>.json`. Nothing is mutated.
+Enumerates every project in every scope (personal + teams), lists every env var, classifies each by severity (`OK` sensitive / `HIGH` high-risk encrypted / `MED` generic encrypted / `LOW-PLAIN` plaintext). Read-only. Writes `~/.vercel-security/audit-<timestamp>.json`.
 
 ### B. Harden — `scripts/harden-to-sensitive.py`
-Re-uploads every non-sensitive env var with `type: sensitive` (same value). Uses `vercel env pull` for plaintext, then API `DELETE` + `POST` — no backdoor tricks. Skips `NEXT_PUBLIC_*` (public by design). Dry-run by default.
-
-After this runs, values can no longer be read from the Vercel dashboard or API; to see them again, rotate. This is the point.
+Re-uploads every non-sensitive env var with `type: sensitive` (same value), per Vercel's [sensitive env var docs](https://vercel.com/docs/environment-variables/sensitive-environment-variables). Uses `vercel env pull` for plaintext, then documented `DELETE` + `POST` endpoints. Skips `NEXT_PUBLIC_*` (public by design). Falls back to `encrypted` for development targets (Vercel constraint). Dry-run by default.
 
 ### C. Incident — `scripts/rotate-internal.py` + `handoff-gen.py`
-Rotates known-random internal secrets if present. The default list (framework-agnostic where possible):
+
+Rotates known-random internal secrets if present. Uses Vercel's `PATCH /v9/projects/.../env/<id>` endpoint for atomic value rotation (keeps type, no delete-then-create gap). Default list:
 
 | Key | What it guards |
 |---|---|
 | `NEXTAUTH_SECRET` / `AUTH_SECRET` | NextAuth / Auth.js session JWTs |
-| `SESSION_SECRET` / `COOKIE_SECRET` | Remix / Express / Hono / Fastify session + cookie signing |
+| `SESSION_SECRET` / `COOKIE_SECRET` | Remix / Express / Hono / Fastify session signing |
 | `PAYLOAD_SECRET` | PayloadCMS |
-| `PREVIEW_SECRET` / `REVALIDATION_SECRET` | Next.js preview mode / on-demand ISR |
-| `CRON_SECRET` | Vercel Cron authorization header |
+| `PREVIEW_SECRET` / `REVALIDATION_SECRET` | Next.js preview / on-demand ISR |
+| `CRON_SECRET` | Vercel Cron authorization |
 | `API_KEY_HMAC_SECRET` / `HMAC_SECRET` | HMAC signatures for internal APIs |
-| `ADMIN_PASSWORD` | Simple admin logins — **new value is printed to stdout once, never persisted**. Copy to a password manager immediately. |
+| `ADMIN_PASSWORD` | Simple admin — **new value printed to stdout once, never persisted** |
 
-Need another key rotated? Pass `--include YOUR_KEY,ANOTHER_KEY`. The script **refuses** anything matching `NEVER_ROTATE_PATTERNS` (at-rest encryption keys, vendor secrets, JWT signing keys that issue long-lived tokens).
+Pass `--include KEY1,KEY2` to extend. The script **refuses** anything matching `NEVER_ROTATE_PATTERNS` (at-rest encryption, vendor secrets, long-lived JWT signing keys — rotating these breaks stateful data).
 
-External vendor keys (Supabase service role, DATABASE_URL, OAuth client secrets, third-party API keys) are **never auto-rotated** — those need the user's dashboard action. The script exits with a checklist and `handoff-gen.py` writes one markdown file per affected project at `~/security-incident-<YYYY-MM>-vercel/<project>.md` with exact vendor-dashboard steps (no plaintext values included).
+`handoff-gen.py` writes per-project markdown at `~/security-incident-<YYYY-MM>-vercel/<project>.md` with exact vendor-dashboard steps. No plaintext values included.
 
 ### D. Vendor rotation — `scripts/update-env.py`
-After you rotate a key in a vendor dashboard, paste the new value back:
+After you rotate a key in a vendor dashboard:
 ```bash
 python3 scripts/update-env.py <project> <KEY> --from-stdin --apply
 ```
-The script uploads with `type: sensitive`, optionally triggers a redeploy if you pass `--redeploy`, and logs the change (no plaintext) to `~/.vercel-security/rotations.json`.
+Follows Vercel's [safe rotation pattern](https://vercel.com/docs/environment-variables/rotating-secrets) — uploads the new value (as `sensitive` where allowed, `encrypted` for development target), optionally triggers a redeploy via `--redeploy`, and logs to `~/.vercel-security/rotations.json` (no plaintext).
 
-## Two `.gitignore` files — don't confuse them
+**Order matters:** upload the new value to Vercel *before* you invalidate the old one in the vendor's dashboard. Per Vercel docs: *"The key to safe rotation is updating Vercel before you invalidate the old credential."*
 
-This repo's own `.gitignore` covers **artifacts produced by running the toolkit on this machine** (rotation logs, audit snapshots, `.env`). It exists so a contributor cannot accidentally commit secrets while developing the toolkit.
+---
 
-You also need to harden the **repos that the toolkit operates on** — your Next.js / Remix / SvelteKit apps that live on Vercel. If you ever copy a handoff doc into one of those repos, or if `vercel env pull` writes a stale `.env`, you don't want them committed. Run:
+## Two `.gitignore` concerns — don't confuse them
+
+This toolkit repo's `.gitignore` prevents contributors from committing toolkit-dev artifacts.
+
+Your **Vercel-deployed app repos** also need ignore patterns — so a stray `vercel env pull` or handoff doc never lands in git. Run once per app repo:
 
 ```bash
 python3 scripts/ignore-setup.py /path/to/your/app-repo
 ```
 
-It appends the same patterns to `.gitignore`, `.vercelignore`, `.dockerignore`, `.npmignore` in the target repo. Idempotent — only adds what's missing.
+Appends patterns to `.gitignore`, `.vercelignore`, `.dockerignore`, `.npmignore`. Idempotent.
 
-> Default toolkit outputs land in `~/.vercel-security/` and `~/security-incident-*-vercel/` — both *outside* every repo. The ignore patterns are belt-and-suspenders for the case where you copy a handoff doc into a repo intentionally.
+Default toolkit outputs land in `~/.vercel-security/` and `~/security-incident-*-vercel/` — outside every repo. The ignore patterns are belt-and-suspenders.
 
-## Adversary model — what someone reading this repo learns
+---
 
-The toolkit is open-source by design. Assume an attacker has read every line. What they get:
+## Supply chain & adversary model
 
-- The **patterns** used to classify secrets (`HIGH_SECRET_PATTERNS` in `scripts/_common.py`) — these are obvious from any production codebase, not a secret advantage.
-- The **path** to your local Vercel CLI auth file — already documented by Vercel.
-- The **API endpoints** used — all public Vercel REST endpoints.
+Assume an attacker has read every line of this repo.
 
-What they **do not** get from this repo:
-- Your token (read at runtime from your local CLI, never embedded)
-- The names, IDs, or env vars of any specific user's projects
-- Any rotation log or audit snapshot
-- Any plaintext value, ever
+**What they learn:** key-name patterns we classify, the path to your local Vercel CLI auth file, the set of Vercel API endpoints we use. All of these are also in Vercel's public docs.
 
-What the toolkit refuses to do, structurally, to limit harm if your machine is compromised:
-- Accept secret values via CLI args (would land in shell history) — uses `getpass` only
-- Print or log the Vercel CLI token, even on error
-- Persist any plaintext rotation value to disk (yes, even `ADMIN_PASSWORD` — printed to stdout once, then dropped)
-- Read or write outside `~/.vercel-security/`, `~/security-incident-*-vercel/`, and explicitly named target repo paths
-- Make any network call to anything other than `api.vercel.com`
+**What they do not learn:** your token (read at runtime only, never embedded), your project names/IDs, any rotation log, any plaintext value.
 
-If you fork this repo and modify these guarantees, document the change loudly. Users should not need to read the diff to know the safety properties changed.
+**Structural safety properties of the scripts:**
+- Accept secret values only via `getpass` (never CLI args — would land in shell history)
+- Never print or log the Vercel CLI token, even on error
+- Never persist any plaintext rotation value (including `ADMIN_PASSWORD` — stdout once, then dropped)
+- Read/write only within `~/.vercel-security/`, `~/security-incident-*-vercel/`, and explicitly named target-repo paths
+- Make no network call to anything other than `api.vercel.com`
+- Retry idempotent API calls on 429/5xx with exponential backoff; never retry 4xx rejections
 
-## Safety & privacy guarantees
+**Supply chain:**
+- Pure Python standard library. No `requirements.txt`, no npm, no external imports. If you see one in your copy, it has been tampered with.
+- Tag releases for pinning: `git checkout v0.1.0`.
+- Fork → audit the diff → run. Don't `git clone main` from an unknown fork.
 
-- **No plaintext in this repo.** All sample outputs are redacted. Your values never leave your machine.
-- **Dry-run by default** on any destructive action.
-- **Local log only.** Rotation logs go to `~/.vercel-security/` with `0600` perms, not `/tmp`, not the repo.
-- **Read token, don't copy it.** Scripts read the local Vercel CLI token from `~/Library/Application Support/com.vercel.cli/auth.json` (macOS) or `~/.local/share/com.vercel.cli/auth.json` (Linux) — they never print or transmit it.
-- **Confirmations.** Every batch prompts `y/N` even with `--apply`.
-- **Rollback log.** Every delete stores the old env id + target list so you can manually recreate if needed.
-- **No workarounds.** Uses only documented Vercel REST API endpoints (`/v9/projects`, `/v10/projects/.../env`). No scraping, no undocumented flags.
+If you fork and weaken any of these properties, document the change loudly at the top of your README. Users should not need to read the diff to know the safety properties changed.
+
+---
 
 ## Runbooks
 
-Process docs:
+Process:
 - [`00-incident-response.md`](runbooks/00-incident-response.md) — minute-by-minute playbook
-- [`01-prevention-hardening.md`](runbooks/01-prevention-hardening.md) — defaults, 2FA, access reviews
-- [`02-common-mistakes.md`](runbooks/02-common-mistakes.md) — gotchas, near-misses, what not to do
-- [`03-post-incident-monitoring.md`](runbooks/03-post-incident-monitoring.md) — weekly diffs, canary tokens, when to close the incident
-- [`04-after-rotation.md`](runbooks/04-after-rotation.md) — **what "done" actually means after auto-rotation finishes**
+- [`01-prevention-hardening.md`](runbooks/01-prevention-hardening.md) — Vercel security settings you should already have on (Git Fork Protection, Deploy Protection, Build Logs Protection, Enforce Sensitive policy, OIDC for AWS)
+- [`02-common-mistakes.md`](runbooks/02-common-mistakes.md) — near-misses, what not to do
+- [`03-post-incident-monitoring.md`](runbooks/03-post-incident-monitoring.md) — weekly audits, canaries, when to close
+- [`04-after-rotation.md`](runbooks/04-after-rotation.md) — what "done" actually means after the toolkit finishes
 
-Per-vendor rotation:
+Per-vendor:
 - [Supabase](runbooks/vendor-supabase.md)
 - [Google OAuth](runbooks/vendor-google-oauth.md)
 - [Neon / Postgres](runbooks/vendor-neon.md)
 - [Generic third-party API](runbooks/vendor-generic.md)
 
-## Related
+---
 
-- [Vercel April 2026 security incident — official bulletin](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident)
-- [Remediating Vercel API access token leaks — GitGuardian](https://www.gitguardian.com/remediation/vercel-api-access-token)
-- [Vercel sensitive environment variables docs](https://vercel.com/docs/environment-variables/sensitive-environment-variables)
+## Authoritative references (official + verified)
+
+Vercel official (always trust these over anything else, including this README):
+- [Vercel April 2026 security incident — KB bulletin](https://vercel.com/kb/bulletin/vercel-april-2026-security-incident)
+- [Rotating environment variables — official pattern](https://vercel.com/docs/environment-variables/rotating-secrets)
+- [Sensitive environment variables](https://vercel.com/docs/environment-variables/sensitive-environment-variables)
+- [Environment variables (overview)](https://vercel.com/docs/environment-variables)
+- [Project security settings](https://vercel.com/docs/project-configuration/security-settings)
+- [Tokens](https://vercel.com/docs/sign-in-with-vercel/tokens)
+- [Deploy Protection](https://vercel.com/docs/deployment-protection)
+- [OIDC Federation](https://vercel.com/docs/oidc) — move off long-lived AWS/GCP keys to short-lived tokens
+
+Verified third-party:
+- [GitGuardian — Remediating Vercel API access token leaks](https://www.gitguardian.com/remediation/vercel-api-access-token)
+
+This README intentionally avoids citing unverified blog posts. If a source isn't above, it wasn't cross-checked enough to recommend.
+
+---
 
 ## License
 

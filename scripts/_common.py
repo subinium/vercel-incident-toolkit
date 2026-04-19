@@ -133,21 +133,56 @@ def headers() -> dict[str, str]:
 
 
 def api(
-    method: str, path: str, team_id: str | None = None, body: dict | None = None
+    method: str,
+    path: str,
+    team_id: str | None = None,
+    body: dict | None = None,
+    retries: int = 3,
 ) -> dict:
-    """Call Vercel REST API. Documented endpoints only."""
+    """Call Vercel REST API. Documented endpoints only.
+
+    Retries on 429 (rate limit) and 5xx with exponential backoff.
+    Does NOT retry on 4xx (other than 429) — those are intentional rejections.
+    """
+    import time
+
     url = VERCEL_API + path
     if team_id:
         sep = "&" if "?" in path else "?"
         url += f"{sep}teamId={team_id}"
     data = json.dumps(body).encode() if body else None
-    req = urllib.request.Request(url, headers=headers(), method=method, data=data)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            raw = r.read()
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as e:
-        return {"__error__": f"HTTP {e.code}", "__body__": e.read().decode()[:300]}
+
+    last_err: dict = {}
+    for attempt in range(retries):
+        req = urllib.request.Request(url, headers=headers(), method=method, data=data)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read()
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as e:
+            code = e.code
+            body_text = e.read().decode(errors="replace")[:300]
+            last_err = {"__error__": f"HTTP {code}", "__body__": body_text}
+            if code == 429 or 500 <= code < 600:
+                if attempt < retries - 1:
+                    time.sleep(2**attempt)  # 1s, 2s, 4s
+                    continue
+            return last_err
+        except (urllib.error.URLError, TimeoutError) as e:
+            last_err = {"__error__": "network", "__body__": str(e)[:200]}
+            if attempt < retries - 1:
+                time.sleep(2**attempt)
+                continue
+            return last_err
+    return last_err
+
+
+def get_env(project_id: str, env_id: str, team_id: str | None) -> dict | None:
+    """Fetch a single env var by id. Returns None if not found."""
+    out = api("GET", f"/v9/projects/{project_id}/env/{env_id}", team_id)
+    if "__error__" in out:
+        return None
+    return out
 
 
 def list_teams() -> list[dict]:

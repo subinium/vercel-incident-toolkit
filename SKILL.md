@@ -134,19 +134,23 @@ Use when Vercel has announced a breach, a token has leaked, or there's evidence 
 
 Steps (in order — do not skip):
 
-1. **Rotate the local CLI token immediately.**
+1. **Token + account hygiene first (not just `vercel logout`).**
    ```
-   vercel logout
-   vercel login
+   # 'vercel logout' only revokes the CURRENT machine's CLI token.
+   # Other machines / CI / integrations keep their tokens.
    ```
-   This invalidates the old CLI token even if it had already been copied off the machine.
+   Go to https://vercel.com/account/tokens → **revoke every token** you don't actively need. Then:
+   - Ensure 2FA is on (https://vercel.com/account/security); prefer a hardware key
+   - For each team: Members → confirm every member has 2FA
+   - Only after revoking broadly, `vercel logout && vercel login` to pick up a fresh token
+   - Team → Audit Log → scan the suspected compromise window for `token.create`, `member.add`, deploy protection toggles
 
 2. Run Flow A to snapshot current state. The snapshot is saved for post-incident audit and future sessions.
 
-3. `python3 scripts/rotate-internal.py` (dry-run), review the plan, then `--apply`. This rotates these keys *only* when present:
-   - `NEXTAUTH_SECRET`, `AUTH_SECRET` (session JWTs — all users will need to re-login, which is the point)
-   - `PREVIEW_SECRET`, `REVALIDATION_SECRET`
-   - `CRON_SECRET`, `API_KEY_HMAC_SECRET`
+3. `python3 scripts/rotate-internal.py` (dry-run), review the plan, then `--apply`. Uses Vercel's documented `PATCH /v9/projects/<id>/env/<env-id>` endpoint for atomic in-place value rotation — keeps env id and type, no missing-variable window. Rotates these keys when present:
+   - `NEXTAUTH_SECRET`, `AUTH_SECRET`, `SESSION_SECRET`, `COOKIE_SECRET`, `PAYLOAD_SECRET` (session JWTs / cookie signing — all users will need to re-login, which is the point)
+   - `PREVIEW_SECRET`, `REVALIDATION_SECRET` (Next.js)
+   - `CRON_SECRET`, `API_KEY_HMAC_SECRET`, `HMAC_SECRET`
    - `ADMIN_PASSWORD` (new value printed to stdout **once**, never persisted — operator must copy to a password manager immediately)
 
 4. `python3 scripts/handoff-gen.py` — writes one markdown file per affected project at `~/security-incident-<YYYY-MM>-vercel/<project>.md`. Each file contains:

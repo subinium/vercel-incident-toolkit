@@ -1,13 +1,30 @@
 #!/usr/bin/env python3
-"""Rotate Vercel-side internal-random secrets (NEXTAUTH_SECRET, AUTH_SECRET,
-PREVIEW_SECRET, REVALIDATION_SECRET, CRON_SECRET, API_KEY_HMAC_SECRET,
-ADMIN_PASSWORD).
+"""Rotate Vercel-side internal-random secrets.
 
-Default mode: --dry-run (just prints the plan).
-To actually mutate, pass --apply. Even then, prompts y/N before each batch.
+Default: NEXTAUTH_SECRET, AUTH_SECRET, SESSION_SECRET, COOKIE_SECRET,
+PAYLOAD_SECRET, PREVIEW_SECRET, REVALIDATION_SECRET, CRON_SECRET,
+API_KEY_HMAC_SECRET, HMAC_SECRET, ADMIN_PASSWORD.
 
-External vendor keys (Supabase, DATABASE_URL, OAuth, etc.) are NEVER touched.
-Use scripts/update-env.py to upload values you rotated in vendor dashboards.
+Method: uses Vercel's documented PATCH /v9/projects/<id>/env/<env-id>
+endpoint to update the value atomically in-place. This keeps the existing
+env var id and type intact — no window where the variable is missing. If you
+also want to upgrade types to 'sensitive', run scripts/harden-to-sensitive.py
+as a separate pass (that path is delete+create per Vercel's documented rule:
+'to mark an existing environment variable as sensitive, remove and re-add it').
+
+Safety:
+  - Default mode is --dry-run. Must pass --apply to mutate.
+  - Even with --apply, prompts y/N before touching anything.
+  - Re-fetches each env var before mutation to catch stale snapshots.
+  - Retries 429/5xx with exponential backoff; never retries 4xx rejections.
+  - External vendor keys (Supabase, DATABASE_URL, OAuth, etc.) are NEVER
+    touched here. Use scripts/update-env.py after rotating in the vendor
+    dashboard, following Vercel's official rotation order (update Vercel
+    before invalidating the vendor's old credential).
+
+References:
+  https://vercel.com/docs/environment-variables/rotating-secrets
+  https://vercel.com/docs/environment-variables/sensitive-environment-variables
 """
 
 from __future__ import annotations
@@ -24,6 +41,7 @@ from _common import (
     NEVER_ROTATE_PATTERNS,
     api,
     confirm,
+    get_env,
     green,
     red,
     workspace_dir,
@@ -39,7 +57,6 @@ def gen_value(key: str) -> str:
 
 
 def find_audit() -> Path:
-    """Most recent audit snapshot."""
     files = sorted(workspace_dir().glob("audit-*.json"), reverse=True)
     if not files:
         raise SystemExit(
@@ -49,40 +66,41 @@ def find_audit() -> Path:
 
 
 def rotate_one(row: dict, new_value: str) -> dict:
+    """PATCH the value atomically. Keeps env id + type. Re-verifies before mutate."""
     pid = row["projectId"]
     team = row.get("teamId")
-    target = [t for t in row["target"].split(",") if t]
+    env_id = row["envId"]
     log = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "project": row["project"],
         "key": row["key"],
-        "target": target,
-        "old_env_id": row["envId"],
+        "target": [t for t in row["target"].split(",") if t],
+        "env_id": env_id,
+        "method": "PATCH",
     }
-    d = api("DELETE", f"/v10/projects/{pid}/env/{row['envId']}", team)
-    if "__error__" in d:
-        log["status"] = "delete_failed"
-        log["error"] = d
+    # Re-fetch to verify the snapshot is still current.
+    current = get_env(pid, env_id, team)
+    if current is None:
+        log["status"] = "not_found"
+        log["error"] = "env var missing at mutation time — rerun audit"
         return log
-    c = api(
-        "POST",
-        f"/v10/projects/{pid}/env",
+    if current.get("key") != row["key"]:
+        log["status"] = "mismatch"
+        log["error"] = f"expected key={row['key']!r}, found {current.get('key')!r}"
+        return log
+    # PATCH — atomic value update. Body intentionally minimal to avoid touching type.
+    r = api(
+        "PATCH",
+        f"/v9/projects/{pid}/env/{env_id}",
         team,
-        body={
-            "key": row["key"],
-            "value": new_value,
-            "type": "sensitive",
-            "target": target,
-        },
+        body={"value": new_value},
     )
-    if "__error__" in c:
-        log["status"] = "create_failed"
-        log["error"] = c
+    if "__error__" in r:
+        log["status"] = "patch_failed"
+        log["error"] = r
         return log
     log["status"] = "ok"
-    # Plaintext values are NEVER persisted to the rotation log.
-    # ADMIN_PASSWORD is printed to stdout once; the operator must save it
-    # to a password manager immediately. There is no recovery path.
+    log["type_after"] = current.get("type")  # informational — we didn't change it
     return log
 
 
@@ -108,11 +126,8 @@ def main() -> int:
     include = {s.strip() for s in args.include.split(",") if s.strip()}
     exclude = {s.strip() for s in args.exclude.split(",") if s.strip()}
 
-    # Safety: refuse to rotate anything that looks like at-rest encryption or
-    # a vendor secret. Users who really want to override must go through
-    # scripts/update-env.py instead.
     for k in include:
-        if any(p in k.upper() for p in NEVER_ROTATE_PATTERNS):
+        if any(pat in k.upper() for pat in NEVER_ROTATE_PATTERNS):
             print(red(f"Refused: '{k}' matches NEVER_ROTATE_PATTERNS."))
             print(
                 red(
@@ -131,22 +146,23 @@ def main() -> int:
         print(green("No internal-random secrets present. Nothing to rotate."))
         return 0
 
-    print(f"Plan: rotate {len(targets)} secret(s) (audit: {snap_path.name})\n")
+    print(f"Plan: rotate {len(targets)} secret(s) (audit: {snap_path.name})")
+    print(
+        "Method: atomic PATCH of value only — keeps env id and type. "
+        "Run `scripts/harden-to-sensitive.py` separately to upgrade types.\n"
+    )
     for r in sorted(targets, key=lambda r: (r["project"], r["key"])):
-        print(f"  - {r['project']:<22} {r['key']:<24} [{r['target']}]")
+        print(f"  - {r['project']:<22} {r['key']:<24} [{r['target']}] type={r['type']}")
 
     print()
     print(yellow("Side effects you must accept:"))
-    print("  • NEXTAUTH_SECRET / AUTH_SECRET → all active sessions invalidated")
-    print(
-        "  • CRON_SECRET → external schedulers calling Vercel Cron will 401 until updated"
-    )
+    print("  • NEXTAUTH_SECRET / AUTH_SECRET / SESSION_SECRET / COOKIE_SECRET")
+    print("      → all active sessions invalidated; users must re-login")
+    print("  • CRON_SECRET → external schedulers calling Vercel Cron will 401")
     print("  • REVALIDATION_SECRET → CMS webhooks calling /api/revalidate will 401")
-    print(
-        "  • API_KEY_HMAC_SECRET → consumers using old HMAC will fail signature checks"
-    )
+    print("  • HMAC_SECRET / API_KEY_HMAC_SECRET → consumers using old HMAC fail")
     print("  • PREVIEW_SECRET → bookmarked Next.js preview URLs stop working")
-    print("  • ADMIN_PASSWORD → new value printed once; save it")
+    print("  • ADMIN_PASSWORD → new value printed once; save to password manager NOW")
     print()
 
     if not args.apply:
@@ -158,9 +174,7 @@ def main() -> int:
         return 1
 
     log_entries = []
-    admin_passwords: list[tuple[str, str]] = (
-        []
-    )  # (project, plaintext) — printed once, not persisted
+    admin_passwords: list[tuple[str, str]] = []
     ok = fail = 0
     for r in sorted(targets, key=lambda r: (r["project"], r["key"])):
         new_val = gen_value(r["key"])
@@ -174,8 +188,14 @@ def main() -> int:
                 admin_passwords.append((r["project"], new_val))
         else:
             fail += 1
-        # Best-effort: drop the plaintext reference from this scope ASAP.
-        new_val = ""
+            # For any non-OK: print the new value so the operator can manually
+            # set it via the Vercel dashboard. We do NOT persist it.
+            print(
+                red(
+                    f"      RECOVER: manually set {r['key']} for {r['project']} → {new_val}"
+                )
+            )
+        new_val = ""  # drop plaintext reference
 
     rot_log = workspace_dir() / "rotations.json"
     existing = json.loads(rot_log.read_text()) if rot_log.exists() else []
@@ -195,25 +215,21 @@ def main() -> int:
         for proj, pw in admin_passwords:
             print(f"  {proj}: {pw}")
         print(yellow("=" * 60))
-        # Overwrite the local references so they don't linger in process memory
-        # any longer than necessary. (Best-effort — Python str interning makes
-        # full erasure impossible without ctypes, but we don't keep refs.)
         admin_passwords.clear()
 
     print()
-    print(
-        green("Next steps — read runbooks/04-after-rotation.md for the full checklist")
-    )
-    print("  1. `python3 scripts/handoff-gen.py`    — draft per-project handoff docs")
-    print("  2. `vercel logout && vercel login`     — rotate your local CLI token")
-    print("  3. `vercel env pull` per project dir   — refresh local `.env`")
-    print("  4. Update CI/CD secret mirrors (GitHub Actions etc.) for rotated keys")
-    print("  5. `vercel --prod` per project         — force clean redeploy")
-    print("  6. Smoke-test production (sign in, DB query, cron tick)")
-    print("  7. Rotate external vendor keys ONE at a time (see handoff docs)")
-    print("  8. Review Vercel Audit Log for the incident window")
-    print("  9. Rotate Deploy Hooks per project")
-    print("  10. Continue weekly `scripts/audit.py` diffs for 30 days")
+    print(green("Next steps — see runbooks/04-after-rotation.md for the full playbook"))
+    print("  1. `python3 scripts/handoff-gen.py`  — draft per-project handoff docs")
+    print("  2. Revoke all Vercel tokens via the dashboard (not just `vercel logout`)")
+    print("  3. Verify 2FA on every team member; remove ex-teammates")
+    print("  4. `vercel env pull` per project       — refresh local `.env`")
+    print("  5. Update CI/CD secret mirrors (GitHub Actions etc.)")
+    print("  6. `vercel --prod` per project         — force cold-start redeploy")
+    print("  7. Smoke-test production (sign in, DB query, cron tick)")
+    print("  8. Rotate external vendor keys ONE AT A TIME (see handoff docs)")
+    print("  9. Review Vercel Audit Log for the incident window")
+    print(" 10. Rotate Deploy Hooks per project")
+    print(" 11. Continue weekly `scripts/audit.py` diffs for 30 days")
     return 0 if not fail else 2
 
 
